@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Elite OSINT War Room</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #050505;
+    color: #00ff00;
+    overflow-x: hidden;
+}
+
+header {
+    padding: 10px;
+    text-align: center;
+    background: #111;
+    border-bottom: 2px solid #00ff00;
+    font-size: 24px;
+    font-weight: bold;
+}
+
+.ticker {
+    background: #000;
+    color: red;
+    font-size: 14px;
+    padding: 5px;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.ticker span {
+    display: inline-block;
+    padding-left: 100%;
+    animation: scroll 20s linear infinite;
+}
+
+@keyframes scroll {
+    0% { transform: translateX(0%); }
+    100% { transform: translateX(-100%); }
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    grid-auto-rows: 40vh;
+    gap: 8px;
+    padding: 8px;
+}
+
+.panel {
+    border: 1px solid #00ff00;
+    background: #000;
+    width: 100%;
+    height: 100%;
+}
+
+iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+</style>
+</head>
+
+<body>
+<header>🛰️ ELITE OSINT WAR ROOM</header>
+
+<div class="ticker">
+    <span>⚠️ ALERTS: Monitoring Iran conflict • Missile/Drone Activity • OSINT Updates Live • Cyber Threats Active ⚠️</span>
+</div>
+
+<div class="grid">
+    <!-- Flights -->
+    <div class="panel">
+        <iframe src="https://globe.adsbexchange.com/"></iframe>
+    </div>
+
+    <!-- Ships -->
+    <div class="panel">
+        <iframe src="https://www.marinetraffic.com/en/ais/embed/zoom:3"></iframe>
+    </div>
+
+    <!-- Stocks -->
+    <div class="panel">
+        <iframe src="https://s.tradingview.com/widgetembed/?symbols=NASDAQ:AAPL,NYSE:TSLA,AMEX:SPY,FOREXCOM:SPXUSD&theme=dark"></iframe>
+    </div>
+
+    <!-- Iran War Map -->
+    <div class="panel">
+        <iframe src="https://iranwarlive.com/"></iframe>
+    </div>
+
+    <!-- OSINT Feed -->
+    <div class="panel">
+        <iframe src="https://www.inteldesk.app/live"></iframe>
+    </div>
+
+    <!-- Cyber Threat Map -->
+    <div class="panel">
+        <iframe src="https://threatmap.checkpoint.com/"></iframe>
+    </div>
+
+    <!-- Emergency / Radio Feed -->
+    <div class="panel">
+        <iframe src="https://www.broadcastify.com/listen/"></iframe>
+    </div>
+
+    <!-- Quick Notes / Links -->
+    <div class="panel">
+        <iframe src="https://notes.io/"></iframe>
+    </div>
+</div>
+
+</body>
+</html>
