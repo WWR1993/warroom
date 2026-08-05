@@ -10,8 +10,8 @@ const app = express();
 
 const PORT = process.env.PORT || 3000;
 const POLL_INTERVAL = Number(process.env.POLL_INTERVAL || 60) * 1000;
-const FEEDS_RAW = process.env.FEEDS || '';
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '*';
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'changeme';
 
 app.use(helmet());
 app.use(cors({ origin: FRONTEND_ORIGIN }));
@@ -35,14 +35,32 @@ async function initDb() {
     );
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events (timestamp DESC);');
-}
 
-function normalizeFeedList(raw) {
-  if (!raw) return [];
-  return raw.split(/\r?\n|,/).map(s => s.trim()).filter(Boolean).map(s => {
-    const parts = s.split('|').map(p => p.trim());
-    return { url: parts[0], source: parts[1] || parts[0] };
-  });
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS feeds (
+      id SERIAL PRIMARY KEY,
+      url TEXT NOT NULL,
+      source TEXT,
+      active BOOLEAN DEFAULT true,
+      inserted_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+    );
+  `);
+
+  // seed feeds if empty
+  const { rows } = await pool.query('SELECT count(*)::int as c FROM feeds');
+  if (rows.length === 0 || rows[0].c === 0) {
+    const seeds = [
+      { url: 'https://rss.cnn.com/rss/edition.rss', source: 'CNN' },
+      { url: 'https://feeds.bbci.co.uk/news/world/rss.xml', source: 'BBC' },
+      { url: 'https://www.theguardian.com/world/rss', source: 'TheGuardian' },
+      { url: 'https://www.reddit.com/r/worldnews/.rss', source: 'RedditWorld' },
+      { url: 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson', source: 'USGS' },
+      { url: 'https://www.emsc-csem.org/Earthquake/rss.php', source: 'EMSC' }
+    ];
+    for (const s of seeds) {
+      try { await pool.query('INSERT INTO feeds (url,source) VALUES ($1,$2)', [s.url, s.source]); } catch (e) { console.warn('seed feed insert', e.message); }
+    }
+  }
 }
 
 function severityFromText(text) {
@@ -52,6 +70,11 @@ function severityFromText(text) {
   if (t.match(/outage|explosion|fire|attack|evacu/)) return 4;
   if (t.match(/disrupt|downtime|leak|compromis/)) return 3;
   return 2;
+}
+
+async function getActiveFeeds() {
+  const r = await pool.query('SELECT url, source FROM feeds WHERE active = true ORDER BY inserted_at DESC');
+  return r.rows.map(rw => ({ url: rw.url, source: rw.source || rw.url }));
 }
 
 async function upsertEvent(ev) {
@@ -88,6 +111,44 @@ app.get('/api/sources', async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'internal' }); }
 });
 
+// Admin endpoints (protected by ADMIN_TOKEN header 'x-admin-token')
+function checkAdmin(req, res) {
+  const t = req.headers['x-admin-token'] || req.query.admin_token || '';
+  if (!ADMIN_TOKEN || ADMIN_TOKEN === 'changeme') {
+    console.warn('Using default admin token; set ADMIN_TOKEN in production');
+  }
+  if (!t || t !== ADMIN_TOKEN) {
+    res.status(403).json({ error: 'forbidden' });
+    return false;
+  }
+  return true;
+}
+
+app.get('/admin/feeds', async (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  const rows = await pool.query('SELECT id, url, source, active, inserted_at FROM feeds ORDER BY inserted_at DESC');
+  res.json(rows.rows);
+});
+
+app.post('/admin/feeds', async (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  const { url, source } = req.body || {};
+  if (!url) return res.status(400).json({ error: 'url required' });
+  try {
+    const r = await pool.query('INSERT INTO feeds (url, source, active) VALUES ($1,$2,true) RETURNING id, url, source, active', [url, source || null]);
+    res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: 'db' }); }
+});
+
+app.delete('/admin/feeds/:id', async (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  const id = req.params.id;
+  try {
+    await pool.query('UPDATE feeds SET active = false WHERE id = $1', [id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'db' }); }
+});
+
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 
 // serve static if frontend built in ../frontend/dist
@@ -105,7 +166,7 @@ async function fetchJsonArray(url) {
 }
 
 async function fetchFeedsOnce() {
-  const feeds = normalizeFeedList(FEEDS_RAW);
+  const feeds = await getActiveFeeds();
   for (const f of feeds) {
     try {
       let feed = null;
