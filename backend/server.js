@@ -1,25 +1,23 @@
 const express = require('express');
 const cors = require('cors');
-const { Pool } = require('pg');
-const RSSParser = require('rss-parser');
-const fetch = require('node-fetch');
-const path = require('path');
 const helmet = require('helmet');
+const RSSParser = require('rss-parser');
+const { Pool } = require('pg');
+const fetch = require('node-fetch');
 
 const parser = new RSSParser();
 const app = express();
 
 const PORT = process.env.PORT || 3000;
-const POLL_INTERVAL = Number(process.env.POLL_INTERVAL || 60) * 1000; // seconds -> ms
+const POLL_INTERVAL = Number(process.env.POLL_INTERVAL || 60) * 1000;
+const FEEDS_RAW = process.env.FEEDS || '';
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '*';
-const FEEDS_RAW = process.env.FEEDS || ''; // comma or newline separated list: url|source or url
 
 app.use(helmet());
 app.use(cors({ origin: FRONTEND_ORIGIN }));
 app.use(express.json());
 
-// Postgres pool using DATABASE_URL env
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool({ connectionString: process.env.DATABASE_URL || process.env.PG_CONN || 'postgres://warroom:warroom@localhost:5432/warroom' });
 
 async function initDb() {
   await pool.query(`
@@ -39,58 +37,6 @@ async function initDb() {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events (timestamp DESC);');
 }
 
-// SSE clients
-const clients = new Set();
-
-app.get('/events', (req, res) => {
-  res.set({
-    Connection: 'keep-alive',
-    'Cache-Control': 'no-cache',
-    'Content-Type': 'text/event-stream',
-  });
-  res.flushHeaders();
-  res.write('\n');
-  clients.add(res);
-  req.on('close', () => clients.delete(res));
-});
-
-function broadcast(ev) {
-  const payload = `data: ${JSON.stringify(ev)}\n\n`;
-  for (const res of clients) {
-    try { res.write(payload); } catch (e) { clients.delete(res); }
-  }
-}
-
-// API: recent events
-app.get('/api/events', async (req, res) => {
-  try {
-    const limit = Math.min(parseInt(req.query.limit || '500', 10), 5000);
-    const rows = await pool.query('SELECT * FROM events ORDER BY timestamp DESC LIMIT $1', [limit]);
-    res.json(rows.rows);
-  } catch (err) {
-    console.error('API error', err);
-    res.status(500).json({ error: 'internal' });
-  }
-});
-
-// Health
-app.get('/healthz', (req, res) => res.json({ ok: true }));
-
-// Serve static frontend (if present)
-const PUBLIC_DIR = path.join(__dirname, 'public');
-app.use(express.static(PUBLIC_DIR));
-app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));
-
-// Simple severity heuristics
-function severityFromText(text) {
-  if (!text) return 2;
-  const t = text.toLowerCase();
-  if (t.includes('death') || t.includes('killed') || t.includes('massive') || t.includes('catastrophe') || t.includes('fatal')) return 5;
-  if (t.includes('outage') || t.includes('explosion') || t.includes('fire') || t.includes('attack') || t.includes('evacu')) return 4;
-  if (t.includes('disrupt') || t.includes('downtime') || t.includes('leak') || t.includes('compromis')) return 3;
-  return 2;
-}
-
 function normalizeFeedList(raw) {
   if (!raw) return [];
   return raw.split(/\r?\n|,/).map(s => s.trim()).filter(Boolean).map(s => {
@@ -99,17 +45,56 @@ function normalizeFeedList(raw) {
   });
 }
 
+function severityFromText(text) {
+  if (!text) return 2;
+  const t = text.toLowerCase();
+  if (t.match(/death|killed|massive|catastroph|fatal/)) return 5;
+  if (t.match(/outage|explosion|fire|attack|evacu/)) return 4;
+  if (t.match(/disrupt|downtime|leak|compromis/)) return 3;
+  return 2;
+}
+
 async function upsertEvent(ev) {
-  const sql = `INSERT INTO events (id, title, link, severity, lat, lon, source, timestamp, summary)
+  const sql = `INSERT INTO events (id,title,link,severity,lat,lon,source,timestamp,summary)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
     ON CONFLICT (id) DO NOTHING`;
   const vals = [ev.id, ev.title, ev.link, ev.severity, ev.lat, ev.lon, ev.source, ev.timestamp, ev.summary];
-  try {
-    await pool.query(sql, vals);
-  } catch (err) {
-    console.warn('Upsert error', err.message);
-  }
+  try { await pool.query(sql, vals); } catch (e) { console.warn('upsert', e.message); }
 }
+
+// SSE clients
+const clients = new Set();
+app.get('/events', (req, res) => {
+  res.set({ Connection: 'keep-alive', 'Cache-Control': 'no-cache', 'Content-Type': 'text/event-stream' });
+  res.flushHeaders();
+  res.write('\n');
+  clients.add(res);
+  req.on('close', () => clients.delete(res));
+});
+function broadcast(ev) { const payload = `data: ${JSON.stringify(ev)}\n\n`; for (const r of clients) { try { r.write(payload); } catch (e) { clients.delete(r); } } }
+
+app.get('/api/events', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || '500', 10), 5000);
+    const rows = await pool.query('SELECT * FROM events ORDER BY timestamp DESC LIMIT $1', [limit]);
+    res.json(rows.rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: 'internal' }); }
+});
+
+app.get('/api/sources', async (req, res) => {
+  try {
+    const rows = await pool.query('SELECT DISTINCT source FROM events ORDER BY source');
+    res.json(rows.rows.map(r => r.source));
+  } catch (err) { res.status(500).json({ error: 'internal' }); }
+});
+
+app.get('/healthz', (req, res) => res.json({ ok: true }));
+
+// serve static if frontend built in ../frontend/dist
+const path = require('path');
+const staticDir = path.join(__dirname, '..', 'frontend', 'dist');
+app.use(express.static(staticDir));
+app.get('/', (req, res) => res.sendFile(path.join(staticDir, 'index.html')));
 
 async function fetchJsonArray(url) {
   const res = await fetch(url, { timeout: 10000 });
@@ -123,30 +108,23 @@ async function fetchFeedsOnce() {
   const feeds = normalizeFeedList(FEEDS_RAW);
   for (const f of feeds) {
     try {
-      // try RSS parser first
-      let feed;
-      try { feed = await parser.parseURL(f.url); }
-      catch (e) { feed = null; }
-
+      let feed = null;
+      try { feed = await parser.parseURL(f.url); } catch (e) { feed = null; }
       if (feed && Array.isArray(feed.items)) {
         for (const item of feed.items.slice(0, 200)) {
           const id = item.guid || item.id || item.link || (f.url + '|' + (item.title||'')).slice(0,255);
           const title = item.title || '';
           const summary = item.contentSnippet || item.content || item.summary || '';
           const severity = severityFromText(title + ' ' + summary);
-          // attempt to parse lat/lon if present as georss:point or custom fields
           let lat = null, lon = null;
           if (item.lat && item.lon) { lat = Number(item.lat); lon = Number(item.lon); }
-          if (item['georss:point']) {
-            const [a,b] = item['georss:point'].split(/\s+/); lat = Number(a); lon = Number(b);
-          }
+          if (item['georss:point']) { const [a,b] = item['georss:point'].split(/\s+/); lat = Number(a); lon = Number(b); }
           const timestamp = item.isoDate || item.pubDate || new Date().toISOString();
           const ev = { id: String(id), title, link: item.link || '', severity, lat, lon, source: f.source, timestamp, summary };
           await upsertEvent(ev);
           broadcast(ev);
         }
       } else {
-        // try JSON feed returning array
         try {
           const arr = await fetchJsonArray(f.url);
           if (Array.isArray(arr)) {
@@ -163,32 +141,16 @@ async function fetchFeedsOnce() {
               broadcast(ev);
             }
           }
-        } catch (e) {
-          // not JSON - ignore
-        }
+        } catch (e) {}
       }
-    } catch (err) {
-      console.warn('Feed fetch failed', f.url, err.message);
-    }
+    } catch (err) { console.warn('Feed fetch failed', f.url, err.message); }
   }
 }
 
-// Start polling
-setInterval(() => {
-  fetchFeedsOnce().catch(err => console.warn('poll err', err));
-}, POLL_INTERVAL);
+setInterval(() => { fetchFeedsOnce().catch(e => console.warn('poll err', e)); }, POLL_INTERVAL);
 
-// initial run
 (async () => {
-  try {
-    await initDb();
-    await fetchFeedsOnce();
-    console.log('Initialized DB and fetched feeds');
-  } catch (err) {
-    console.error('Startup failed', err);
-    process.exit(1);
-  }
+  try { await initDb(); console.log('DB ready'); await fetchFeedsOnce(); console.log('Initial fetch done'); } catch (e) { console.error('startup', e); process.exit(1); }
 })();
 
-// Start server
 app.listen(PORT, () => console.log(`Warroom backend listening on ${PORT}`));
