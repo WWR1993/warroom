@@ -1,6 +1,11 @@
 {
   "name": "warroom-intel-aggregator",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-fetch": "^3.3.2",
+    "cors": "^2.8.5"
   "description": "Server-side aggregator and SSE broadcaster for warroom demo",
   "main": "server/index.js",
   "scripts": {
