@@ -1,242 +1,178 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
+<meta charset="UTF-8">
 <title>Global Incident Intelligence Module</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="description" content="Real-time feed aggregator for public incident intelligence (OSINT). For production, ensure server-side aggregation and legal review." />
-
-<link rel="icon" href="data:,">
-
-<!-- Leaflet -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="" crossorigin="" />
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
 <style>
-:root{ --bg:#0d1117; --panel:#0f1720; --muted:#9aa4b2; --border:#30363d; --accent:#58a6ff; --danger:#ff4d4f; --warn:#ffb86b; --success:#3fb950; --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
-*{box-sizing:border-box} html,body{height:100%}
-body { margin:0; font-family:var(--font); background:var(--bg); color:#e6edf3; -webkit-font-smoothing:antialiased; line-height:1.4; }
-header{ background:var(--panel); padding:14px 16px; border-bottom:1px solid var(--border); text-align:center; }
-header h1{margin:0;font-size:1.15rem}
-.container{ max-width:1100px; margin:18px auto; padding:0 12px; }
-#intel-module{ background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent); border:1px solid var(--border); padding:16px; border-radius:8px; }
-.ticker{ display:block; padding:8px 10px; border-radius:6px; background:rgba(255,255,255,0.02); overflow:hidden; white-space:nowrap; border-bottom:1px solid var(--border); }
-@media (prefers-reduced-motion: no-preference) { .ticker-inner{ display:inline-block; animation: ticker 20s linear infinite; } }
-@keyframes ticker { 0%{transform:translateX(100%)} 100%{transform:translateX(-100%)} }
-.columns { display:grid; grid-template-columns: 1fr 380px; gap:16px; margin-top:12px; }
-@media (max-width:820px){ .columns{grid-template-columns:1fr} }
-.section { border-radius:6px; padding:10px; border:1px solid var(--border); background:transparent; max-height:520px; overflow:auto; }
-.controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
-.controls select, .controls button, .controls input{background:transparent; border:1px solid var(--border); color:inherit; padding:6px 8px; border-radius:6px}
-.controls button:hover{border-color:var(--accent)}
-.intel-item{ padding:10px; border-bottom:1px dashed rgba(255,255,255,0.03); display:block; }
-.intel-item:last-child{border-bottom:0}
-.intel-item a{color:var(--accent); text-decoration:none}
-.intel-item a:hover{text-decoration:underline}
-.intel-item:focus{outline:3px solid rgba(88,166,255,0.15); border-radius:4px}
-.sev-5 { border-left:4px solid var(--danger); padding-left:8px }
-.sev-4 { border-left:4px solid #ff6600; padding-left:8px }
-.sev-3 { border-left:4px solid var(--warn); padding-left:8px }
-.sev-2 { border-left:4px solid #c7d2fe; padding-left:8px }
-.sev-1 { border-left:4px solid #7f8a93; padding-left:8px }
-.status-row { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-top:10px; color:var(--muted); font-size:0.9rem; }
-#map { height:360px; border-radius:6px; margin-top:12px; border:1px solid var(--border); }
-.visually-hidden { position: absolute !important; height: 1px; width: 1px; overflow: hidden; clip: rect(1px, 1px, 1px, 1px); white-space: nowrap; }
+body {
+  background: #0d1117;
+  color: #fff;
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+header {
+  background: #161b22;
+  padding: 15px;
+  text-align: center;
+  font-size: 22px;
+  border-bottom: 1px solid #30363d;
+}
+
+/* PANEL */
+#intel-module {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  padding: 15px;
+  margin: 20px;
+  color: #fff;
+}
+
+#intel-feed, #intel-escalation {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 10px;
+}
+
+.intel-item {
+  padding: 8px;
+  border-bottom: 1px solid #30363d;
+}
+
+.sev-5 { border-left: 4px solid #ff0000; }
+.sev-4 { border-left: 4px solid #ff6600; }
+.sev-3 { border-left: 4px solid #ffaa00; }
+.sev-2 { border-left: 4px solid #cccc00; }
+.sev-1 { border-left: 4px solid #999999; }
+
+/* TICKER */
+.ticker {
+  white-space: nowrap;
+  overflow: hidden;
+  box-sizing: border-box;
+  animation: ticker 25s linear infinite;
+  border-bottom: 1px solid #30363d;
+  padding: 5px;
+}
+
+@keyframes ticker {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
 </style>
 </head>
+
 <body>
-<header>
-  <h1>🌐 Global Incident Intelligence Module</h1>
-</header>
 
-<main class="container" id="main">
-  <section id="intel-module" aria-labelledby="intel-heading">
-    <h2 id="intel-heading">Real-Time Global Intelligence</h2>
+<header>🌐 Global Incident Intelligence Module</header>
 
-    <div class="controls" role="toolbar" aria-label="Feed controls">
-      <select id="filter-sev" title="Minimum severity">
-        <option value="1">Show all severities</option>
-        <option value="3">Severity ≥ 3</option>
-        <option value="4">Severity ≥ 4 (Escalations)</option>
-      </select>
+<section id="intel-module">
+  <h2>Real-Time Global Intelligence</h2>
 
-      <input id="search" placeholder="Search title or source" aria-label="Search feed" />
+  <!-- Ticker -->
+  <div id="intel-ticker" class="ticker">Loading intelligence...</div>
 
-      <button id="refresh-btn" type="button">Refresh</button>
+  <!-- Feed -->
+  <h3>Incident Feed</h3>
+  <div id="intel-feed"></div>
 
-      <div style="margin-left:auto; color:var(--muted); font-size:0.9rem" id="last-updated">Last update: —</div>
-    </div>
-
-    <div id="intel-ticker" class="ticker" role="status" aria-live="polite" aria-atomic="true">
-      <span class="ticker-inner">Loading intelligence...</span>
-    </div>
-
-    <div class="columns">
-      <div>
-        <div id="map" aria-label="Event map"></div>
-
-        <div class="section" id="feed-section" aria-labelledby="feed-heading">
-          <h3 id="feed-heading">Incident Feed</h3>
-          <div id="intel-feed" role="list" aria-live="polite"></div>
-        </div>
-      </div>
-
-      <aside class="section" id="escalation-section" aria-labelledby="escalation-heading" role="complementary">
-        <h3 id="escalation-heading">Escalation Alerts</h3>
-        <div id="intel-escalation" role="list" aria-live="polite"></div>
-
-        <div style="margin-top:12px;">
-          <h4 style="margin:8px 0 6px 0">Sources</h4>
-          <ul id="source-list" style="list-style:none; padding:0; margin:0; color:var(--muted)"></ul>
-        </div>
-      </aside>
-    </div>
-
-    <div class="status-row" aria-hidden="false">
-      <div id="counts">Feeds: —</div>
-      <div id="errors" style="color:#ffb3b3"></div>
-    </div>
-
-    <p style="margin-top:10px; color:var(--muted); font-size:0.85rem">
-      Note: This page aggregates public feeds for demonstration. For production, run server-side aggregation and caching and review legal/privacy obligations around sensitive content.
-    </p>
-  </section>
-</main>
-
-<!-- Libraries -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="" crossorigin=""></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@2.4.0/dist/purify.min.js"></script>
+  <!-- Escalation -->
+  <h3>Escalation Alerts</h3>
+  <div id="intel-escalation"></div>
+</section>
 
 <script>
-// Frontend: connects to SSE and displays events on map + feed
-const state = { events: [], sources: new Set() };
+// FREE OSINT SOURCES
+const sources = [
+  "https://reliefweb.int/updates/rss.xml",
+  "https://rsshub.app/liveuamap",
+  "https://rsshub.app/bbc/world",
+  "https://rsshub.app/aljazeera/news",
+];
 
-// Map setup
-const map = L.map('map', { preferCanvas: true }).setView([20, 0], 2);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
-const markers = L.layerGroup().addTo(map);
+// Severity scoring
+function scoreIncident(text) {
+  const high = ["missile", "airstrike", "explosion", "mass casualty", "coup", "nuclear"];
+  const med = ["clash", "protest", "riot", "attack"];
+  const low = ["statement", "warning", "advisory"];
 
-function addMarker(lat, lon, html, severity) {
-  if (!lat || !lon) return;
-  const color = severity >= 4 ? 'red' : (severity === 3 ? 'orange' : 'blue');
-  const m = L.circleMarker([lat, lon], { radius: 6, color, fillOpacity: 0.8 }).addTo(markers);
-  if (html) m.bindPopup(html);
+  text = text.toLowerCase();
+
+  if (high.some(w => text.includes(w))) return 5;
+  if (med.some(w => text.includes(w))) return 3;
+  if (low.some(w => text.includes(w))) return 1;
+  return 2;
 }
 
-function escapeHtml(s){ return String(s).replace(/[&<>"]+/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c] || c)); }
+// Fetch + normalize
+async function fetchIntel() {
+  let all = [];
 
-function renderItem(item, highlight=false) {
-  const div = document.createElement('div');
-  div.className = 'intel-item sev-' + (item.severity || 2);
-  div.tabIndex = 0;
+  for (const url of sources) {
+    try {
+      const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${url}`);
+      const data = await res.json();
 
-  const title = document.createElement('a');
-  title.href = item.link || '#';
-  title.target = '_blank';
-  title.rel = 'noopener noreferrer';
-  title.textContent = item.title || '(no title)';
+      if (!data.items) continue;
 
-  const meta = document.createElement('div');
-  meta.className = 'meta';
-  meta.textContent = `${item.source || 'unknown'} — ${item.timestamp || ''}`;
+      data.items.forEach(item => {
+        const sev = scoreIncident(item.title + " " + item.description);
 
-  div.appendChild(title);
-  div.appendChild(meta);
-
-  if (item.summary) {
-    const s = document.createElement('div');
-    try { s.innerHTML = DOMPurify.sanitize(item.summary, {ALLOWED_TAGS:['b','i','em','strong','a','p','ul','ol','li','br']}); }
-    catch (e) { s.textContent = item.summary; }
-    div.appendChild(s);
+        all.push({
+          source: data.feed.title,
+          title: item.title,
+          link: item.link,
+          severity: sev,
+          summary: item.description,
+          timestamp: item.pubDate
+        });
+      });
+    } catch (e) {
+      console.log("Feed error:", url);
+    }
   }
 
-  if (item.link) {
-    const v = document.createElement('div');
-    const a = document.createElement('a');
-    a.href = item.link; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = 'View Source';
-    v.appendChild(a);
-    div.appendChild(v);
-  }
-
-  return div;
+  renderIntel(all);
 }
 
-function renderAll() {
-  const feed = document.getElementById('intel-feed');
-  const esc = document.getElementById('intel-escalation');
-  const ticker = document.querySelector('.ticker-inner') || document.createElement('span');
-  const minSev = parseInt(document.getElementById('filter-sev').value || '1', 10);
-  const q = (document.getElementById('search').value || '').toLowerCase();
+// Render UI
+function renderIntel(all) {
+  all.sort((a,b) => b.severity - a.severity);
 
   // Ticker
-  ticker.innerHTML = (state.events.slice(0,12).map(i => `[SEV-${i.severity}] ${escapeHtml(i.title)} — ${escapeHtml(i.source)}`)).join(' • ') || 'No items';
-  if (!document.querySelector('.ticker-inner')) document.getElementById('intel-ticker').appendChild(ticker);
+  const ticker = document.getElementById("intel-ticker");
+  ticker.innerHTML = all.slice(0, 10).map(i =>
+    `[SEV-${i.severity}] ${i.title} — ${i.source}`
+  ).join(" • ");
 
   // Feed
-  feed.innerHTML = '';
-  const filtered = state.events.filter(i => i.severity >= minSev && (i.title.toLowerCase().includes(q) || (i.source && i.source.toLowerCase().includes(q))));
-  if (filtered.length === 0) feed.appendChild(document.createTextNode('No items match the filter.'));
-  else filtered.forEach(i => feed.appendChild(renderItem(i)));
+  const feed = document.getElementById("intel-feed");
+  feed.innerHTML = all.map(i => `
+    <div class="intel-item sev-${i.severity}">
+      <strong>[SEV-${i.severity}] ${i.title}</strong><br>
+      <small>${i.source} — ${i.timestamp}</small><br>
+      <a href="${i.link}" target="_blank">View Source</a>
+    </div>
+  `).join("");
 
-  // Escalations
-  esc.innerHTML = '';
-  const escItems = state.events.filter(i => i.severity >= 4);
-  if (escItems.length === 0) esc.appendChild(document.createTextNode('No escalations.'));
-  else escItems.slice(0,10).forEach(i => esc.appendChild(renderItem(i,true)));
-
-  // Map markers
-  markers.clearLayers();
-  state.events.forEach(ev => { if (ev.lat && ev.lon) addMarker(ev.lat, ev.lon, `<strong>${escapeHtml(ev.title)}</strong><br>${escapeHtml(ev.source)}`, ev.severity); });
-
-  document.getElementById('counts').textContent = `Items: ${state.events.length}`;
+  // Escalation
+  const esc = document.getElementById("intel-escalation");
+  esc.innerHTML = all.filter(i => i.severity >= 4).map(i => `
+    <div class="intel-item sev-${i.severity}">
+      <strong>⚠ Escalation: ${i.title}</strong><br>
+      <small>${i.source} — ${i.timestamp}</small><br>
+      <a href="${i.link}" target="_blank">View Source</a>
+    </div>
+  `).join("");
 }
 
-function addEvent(ev) {
-  // dedupe by id or link+title
-  const id = ev.id || (ev.link || '') + '|' + (ev.title || '');
-  if (state.events.some(e => (e.id || (e.link||'') + '|' + (e.title||'')) === id)) return;
-  state.events.unshift(ev);
-  state.sources.add(ev.source || 'unknown');
-  updateSourceList();
-  renderAll();
-}
-
-function updateSourceList() {
-  const ul = document.getElementById('source-list'); ul.innerHTML = '';
-  Array.from(state.sources).slice(0,50).forEach(s => { const li = document.createElement('li'); li.textContent = s; ul.appendChild(li); });
-}
-
-// SSE connection
-let evtSource;
-function connectSSE() {
-  if (evtSource) evtSource.close();
-  evtSource = new EventSource('/events');
-  evtSource.onopen = () => console.log('SSE connected');
-  evtSource.onerror = e => console.warn('SSE error', e);
-  evtSource.onmessage = e => {
-    try { const data = JSON.parse(e.data); addEvent(data); document.getElementById('last-updated').textContent = 'Last update: ' + new Date().toLocaleString(); }
-    catch (err) { console.error('Invalid SSE data', err); }
-  };
-}
-
-// initial fetch of recent events
-async function fetchRecent() {
-  try {
-    const res = await fetch('/api/events');
-    if (!res.ok) throw new Error('Network');
-    const json = await res.json();
-    state.events = json || [];
-    state.events.forEach(e => state.sources.add(e.source || 'unknown'));
-    renderAll();
-  } catch (e) { console.warn('Could not load recent events', e); }
-}
-
-// UI events
-document.getElementById('refresh-btn').addEventListener('click', () => { state.events = []; fetchRecent(); });
-document.getElementById('filter-sev').addEventListener('change', renderAll);
-document.getElementById('search').addEventListener('input', renderAll);
-
-// Start
-fetchRecent().then(connectSSE);
+// Auto-refresh every 60 seconds
+fetchIntel();
+setInterval(fetchIntel, 60000);
 </script>
+
 </body>
 </html>
