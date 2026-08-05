@@ -1,0 +1,33 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: warroom
+      POSTGRES_PASSWORD: warroom
+      POSTGRES_DB: warroom
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U warroom"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: ./backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://warroom:warroom@db:5432/warroom
+      POLL_INTERVAL: 60
+      FEEDS: |
+        https://example.com/mock-rss.xml|MockFeed
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
