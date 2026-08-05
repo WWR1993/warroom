@@ -2,118 +2,177 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Elite OSINT War Room</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Global Incident Intelligence Module</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
 <style>
 body {
-    margin: 0;
-    font-family: Arial, sans-serif;
-    background: #050505;
-    color: #00ff00;
-    overflow-x: hidden;
+  background: #0d1117;
+  color: #fff;
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 0;
 }
 
 header {
-    padding: 10px;
-    text-align: center;
-    background: #111;
-    border-bottom: 2px solid #00ff00;
-    font-size: 24px;
-    font-weight: bold;
+  background: #161b22;
+  padding: 15px;
+  text-align: center;
+  font-size: 22px;
+  border-bottom: 1px solid #30363d;
 }
 
+/* PANEL */
+#intel-module {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  padding: 15px;
+  margin: 20px;
+  color: #fff;
+}
+
+#intel-feed, #intel-escalation {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 10px;
+}
+
+.intel-item {
+  padding: 8px;
+  border-bottom: 1px solid #30363d;
+}
+
+.sev-5 { border-left: 4px solid #ff0000; }
+.sev-4 { border-left: 4px solid #ff6600; }
+.sev-3 { border-left: 4px solid #ffaa00; }
+.sev-2 { border-left: 4px solid #cccc00; }
+.sev-1 { border-left: 4px solid #999999; }
+
+/* TICKER */
 .ticker {
-    background: #000;
-    color: red;
-    font-size: 14px;
-    padding: 5px;
-    overflow: hidden;
-    white-space: nowrap;
+  white-space: nowrap;
+  overflow: hidden;
+  box-sizing: border-box;
+  animation: ticker 25s linear infinite;
+  border-bottom: 1px solid #30363d;
+  padding: 5px;
 }
 
-.ticker span {
-    display: inline-block;
-    padding-left: 100%;
-    animation: scroll 20s linear infinite;
-}
-
-@keyframes scroll {
-    0% { transform: translateX(0%); }
-    100% { transform: translateX(-100%); }
-}
-
-.grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-    grid-auto-rows: 40vh;
-    gap: 8px;
-    padding: 8px;
-}
-
-.panel {
-    border: 1px solid #00ff00;
-    background: #000;
-    width: 100%;
-    height: 100%;
-}
-
-iframe {
-    width: 100%;
-    height: 100%;
-    border: none;
+@keyframes ticker {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
 }
 </style>
 </head>
 
 <body>
-<header>🛰️ ELITE OSINT WAR ROOM</header>
 
-<div class="ticker">
-    <span>⚠️ ALERTS: Monitoring Iran conflict • Missile/Drone Activity • OSINT Updates Live • Cyber Threats Active ⚠️</span>
-</div>
+<header>🌐 Global Incident Intelligence Module</header>
 
-<div class="grid">
-    <!-- Flights -->
-    <div class="panel">
-        <iframe src="https://globe.adsbexchange.com/"></iframe>
+<section id="intel-module">
+  <h2>Real-Time Global Intelligence</h2>
+
+  <!-- Ticker -->
+  <div id="intel-ticker" class="ticker">Loading intelligence...</div>
+
+  <!-- Feed -->
+  <h3>Incident Feed</h3>
+  <div id="intel-feed"></div>
+
+  <!-- Escalation -->
+  <h3>Escalation Alerts</h3>
+  <div id="intel-escalation"></div>
+</section>
+
+<script>
+// FREE OSINT SOURCES
+const sources = [
+  "https://reliefweb.int/updates/rss.xml",
+  "https://rsshub.app/liveuamap",
+  "https://rsshub.app/bbc/world",
+  "https://rsshub.app/aljazeera/news",
+];
+
+// Severity scoring
+function scoreIncident(text) {
+  const high = ["missile", "airstrike", "explosion", "mass casualty", "coup", "nuclear"];
+  const med = ["clash", "protest", "riot", "attack"];
+  const low = ["statement", "warning", "advisory"];
+
+  text = text.toLowerCase();
+
+  if (high.some(w => text.includes(w))) return 5;
+  if (med.some(w => text.includes(w))) return 3;
+  if (low.some(w => text.includes(w))) return 1;
+  return 2;
+}
+
+// Fetch + normalize
+async function fetchIntel() {
+  let all = [];
+
+  for (const url of sources) {
+    try {
+      const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${url}`);
+      const data = await res.json();
+
+      if (!data.items) continue;
+
+      data.items.forEach(item => {
+        const sev = scoreIncident(item.title + " " + item.description);
+
+        all.push({
+          source: data.feed.title,
+          title: item.title,
+          link: item.link,
+          severity: sev,
+          summary: item.description,
+          timestamp: item.pubDate
+        });
+      });
+    } catch (e) {
+      console.log("Feed error:", url);
+    }
+  }
+
+  renderIntel(all);
+}
+
+// Render UI
+function renderIntel(all) {
+  all.sort((a,b) => b.severity - a.severity);
+
+  // Ticker
+  const ticker = document.getElementById("intel-ticker");
+  ticker.innerHTML = all.slice(0, 10).map(i =>
+    `[SEV-${i.severity}] ${i.title} — ${i.source}`
+  ).join(" • ");
+
+  // Feed
+  const feed = document.getElementById("intel-feed");
+  feed.innerHTML = all.map(i => `
+    <div class="intel-item sev-${i.severity}">
+      <strong>[SEV-${i.severity}] ${i.title}</strong><br>
+      <small>${i.source} — ${i.timestamp}</small><br>
+      <a href="${i.link}" target="_blank">View Source</a>
     </div>
+  `).join("");
 
-    <!-- Ships -->
-    <div class="panel">
-        <iframe src="https://www.marinetraffic.com/en/ais/embed/zoom:3"></iframe>
+  // Escalation
+  const esc = document.getElementById("intel-escalation");
+  esc.innerHTML = all.filter(i => i.severity >= 4).map(i => `
+    <div class="intel-item sev-${i.severity}">
+      <strong>⚠ Escalation: ${i.title}</strong><br>
+      <small>${i.source} — ${i.timestamp}</small><br>
+      <a href="${i.link}" target="_blank">View Source</a>
     </div>
+  `).join("");
+}
 
-    <!-- Stocks -->
-    <div class="panel">
-        <iframe src="https://s.tradingview.com/widgetembed/?symbols=NASDAQ:AAPL,NYSE:TSLA,AMEX:SPY,FOREXCOM:SPXUSD&theme=dark"></iframe>
-    </div>
-
-    <!-- Iran War Map -->
-    <div class="panel">
-        <iframe src="https://iranwarlive.com/"></iframe>
-    </div>
-
-    <!-- OSINT Feed -->
-    <div class="panel">
-        <iframe src="https://www.inteldesk.app/live"></iframe>
-    </div>
-
-    <!-- Cyber Threat Map -->
-    <div class="panel">
-        <iframe src="https://threatmap.checkpoint.com/"></iframe>
-    </div>
-
-    <!-- Emergency / Radio Feed -->
-    <div class="panel">
-        <iframe src="https://www.broadcastify.com/listen/"></iframe>
-    </div>
-
-    <!-- Quick Notes / Links -->
-    <div class="panel">
-        <iframe src="https://notes.io/"></iframe>
-    </div>
-</div>
+// Auto-refresh every 60 seconds
+fetchIntel();
+setInterval(fetchIntel, 60000);
+</script>
 
 </body>
 </html>
